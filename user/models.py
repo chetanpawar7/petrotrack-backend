@@ -46,6 +46,7 @@ class SubRoleMaster(models.Model):
 
 class UserMaster(models.Model):
     id = models.AutoField(primary_key=True)
+    supabase_user_id = models.UUIDField(unique=True,blank=True, null=True)
     username = models.CharField(max_length=50, unique=True)
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=30)

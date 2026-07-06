@@ -23,6 +23,16 @@ class RegisterUserView(APIView):
         except Exception as e:
             logger_utils.main_exception(self.get_view_name(),str(e))
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LoginUserView(APIView):
+    def post(self, request):
+        try:
+            logger_utils.main_info('Login User Api Started....', {"email": request.data.get("email")})
+            return helper.login_user(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(),str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
 class UpdateUserView(APIView):

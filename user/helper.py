@@ -1,9 +1,11 @@
 from django.db import transaction
-from user.models import FuelStationMaster, UserMaster
+from django.db.models import Q
+from user.models import FuelStationMaster, UserMaster, RoleMaster, SubRoleMaster
 from user.serializer import UserListSerializer
 from utils import error_msg, success_msg, response_translator, regex_utils
 from rest_framework.response import Response
 from rest_framework import status
+from user import db_helper
 
 def get_user_list(request):
     try:
@@ -26,7 +28,10 @@ def register_user(request):
     try:
         request_data = request.data
         email = request_data.get("email")
+        first_name = request_data.get("first_name")
+        last_name = request_data.get("last_name")
         mobile_number = request_data.get("mobile_number")
+        password = request_data.get("password")
         role_name = request_data.get("role_name")
         sub_role_name = request_data.get("sub_role_name")
         station_name = request_data.get("station_name")
@@ -34,36 +39,120 @@ def register_user(request):
         stn_pincode = request_data.get("stn_pincode")
         user_address = request_data.get("user_address")
 
-        if not all([email, mobile_number, role_name, sub_role_name, station_name, stn_address, stn_pincode, user_address]):
+        if not all([email, first_name, last_name, mobile_number, password, role_name, sub_role_name, station_name, stn_address, stn_pincode, user_address]):
             response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        username = regex_utils.get_username_from_email(email)
+        if not username:
+            response = response_translator.error_response(message=error_msg.INVALID_EMAIL)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        role_obj = RoleMaster.objects.filter(role_name=role_name,is_active=True).first()
+        if not role_obj:
+            response = response_translator.error_response(message=error_msg.ROLE_NOT_FOUND)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+
+        sub_role_obj = SubRoleMaster.objects.filter(sub_role_name=sub_role_name,is_active=True).first()
+        if not sub_role_obj:
+            response = response_translator.error_response(message=error_msg.SUB_ROLE_NOT_FOUND)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        if UserMaster.objects.filter(
+            Q(username=username) | Q(email=email) | Q(mobile_number=mobile_number),
+            is_active=True
+        ).exists():
+            response = response_translator.error_response(message=error_msg.USER_ALREADY_EXISTS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        supabase_user = db_helper.create_supabase_user(email, password)
+        supabase_user_id = db_helper.get_supabase_user_id(supabase_user)
+        if not supabase_user_id:
+            response = response_translator.error_response(message=error_msg.USER_CREATION_FAILED)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
         with transaction.atomic():
             fuel_stn_obj, _  = FuelStationMaster.objects.get_or_create(
                 station_name=station_name,  
                 defaults={'address': stn_address, 'pincode': stn_pincode, 'is_active': True}
-                ).first()
-            
-            username = regex_utils.get_username_from_email(email)
-            # Check if the user already exists
-            if UserMaster.objects.filter(
-                username=username, email=email, mobile_number=mobile_number,fuel_station=fuel_stn_obj, is_active=True).exists():
-                response = response_translator.error_response(message=error_msg.USER_ALREADY_EXISTS)
-                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+                )
 
-            # Create a new user
-            UserMaster.objects.create(
+            user_obj = UserMaster.objects.create(
+                supabase_user_id=supabase_user_id,
                 username=username,
+                first_name=first_name,
+                last_name=last_name,
                 email=email,
                 mobile_number=mobile_number,
-                role_id=role_name,
-                sub_role_id=sub_role_name,
+                role=role_obj,
+                sub_role=sub_role_obj,
                 fuel_station=fuel_stn_obj,
                 address=user_address,
                 is_active=True
             )
 
-        return Response(response_translator.success_response(message=success_msg.USER_REGISTERED), status=status.HTTP_201_CREATED)
+        response = response_translator.success_response(
+            data={"user_id": user_obj.id, "supabase_user_id": supabase_user_id},
+            message=success_msg.USER_REGISTRATION_SUCCESS
+        )
+        return Response(response, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        raise e
+
+
+def login_user(request):
+    try:
+        request_data = request.data
+        email = request_data.get("email")
+        password = request_data.get("password")
+
+        if not all([email, password]):
+            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        username = regex_utils.get_username_from_email(email)
+        if not username:
+            response = response_translator.error_response(message=error_msg.INVALID_EMAIL)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        auth_response = db_helper.login_supabase_user(email, password)
+        supabase_user_id = db_helper.get_supabase_user_id(auth_response)
+        session_data = db_helper.get_supabase_session_data(auth_response)
+        if not supabase_user_id or not session_data or not session_data.get("access_token"):
+            response = response_translator.error_response(message=error_msg.INVALID_CREDENTIALS)
+            return Response(response, status=status.HTTP_401_UNAUTHORIZED)
+
+        user_obj = UserMaster.objects.filter(
+            Q(supabase_user_id=supabase_user_id) | Q(email=email),
+            is_active=True
+        ).select_related("role", "sub_role", "fuel_station").first()
+        if not user_obj:
+            response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+            return Response(response, status=status.HTTP_404_NOT_FOUND)
+
+        data = {
+            "user": {
+                "id": user_obj.id,
+                "supabase_user_id": str(user_obj.supabase_user_id) if user_obj.supabase_user_id else supabase_user_id,
+                "username": user_obj.username,
+                "first_name": user_obj.first_name,
+                "last_name": user_obj.last_name,
+                "email": user_obj.email,
+                "mobile_number": user_obj.mobile_number,
+                "role_name": user_obj.role.role_name if user_obj.role else None,
+                "sub_role_name": user_obj.sub_role.sub_role_name if user_obj.sub_role else None,
+                "station_name": user_obj.fuel_station.station_name if user_obj.fuel_station else None,
+            },
+            "auth": session_data
+        }
+
+        response = response_translator.success_response(
+            data=data,
+            message=success_msg.USER_LOGIN_SUCCESS
+        )
+        return Response(response, status=status.HTTP_200_OK)
 
     except Exception as e:
         raise e
