@@ -1,11 +1,16 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from user import helper
+from user.authentication import SupabaseAuthentication
 from utils import error_msg, logger_utils, success_msg, response_translator
 # Create your views here.
 
 class UserListView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         try:
             logger_utils.main_info(f"Userlist Api Started....",request.data)
@@ -16,6 +21,8 @@ class UserListView(APIView):
 
 
 class RegisterUserView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         try:
             logger_utils.main_info('Register User Api Started....', request.data)
@@ -26,6 +33,8 @@ class RegisterUserView(APIView):
 
 
 class LoginUserView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         try:
             logger_utils.main_info('Login User Api Started....', {"email": request.data.get("email")})
@@ -36,6 +45,9 @@ class LoginUserView(APIView):
         
 
 class UpdateUserView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         try:
             logger_utils.main_info('Update User Api Started....', request.data)

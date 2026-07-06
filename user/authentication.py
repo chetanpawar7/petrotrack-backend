@@ -1,7 +1,6 @@
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
-from petrotrack_backend.supabase_client import supabase
 from user.models import UserMaster
 
 
@@ -33,6 +32,8 @@ class SupabaseAuthentication(BaseAuthentication):
 		token = parts[1]
 
 		try:
+			from petrotrack_backend.supabase_client import supabase
+
 			auth_client = supabase.auth
 
 			# Support both v2 (`auth.get_user(token)`) and older clients

@@ -10,11 +10,25 @@ from user import db_helper
 def get_user_list(request):
     try:
         request_data = request.data
-        fuel_station_id = request_data.get("fuel_station_id",1)
         limit = request_data.get("limit", 10)
         offset = request_data.get("offset", 0)
+        fuel_station_id = request_data.get("fuel_station_id")
+        request_user = request.user
 
-        user_data = UserMaster.objects.filter(fuel_station_id=fuel_station_id, is_active=True).order_by('-updated_at')
+        user_data = UserMaster.objects.filter(is_active=True).select_related("role", "sub_role", "fuel_station")
+
+        if request_user.is_admin:
+            if fuel_station_id:
+                user_data = user_data.filter(fuel_station_id=fuel_station_id)
+        elif request_user.is_manager:
+            user_data = user_data.filter(
+                fuel_station_id=request_user.fuel_station_id,
+                role__role_name__iexact="OPERATOR",
+            )
+        else:
+            user_data = user_data.filter(id=request_user.id)
+
+        user_data = user_data.order_by('-updated_at')
         total_count = user_data.count()
         user_data = user_data[offset:offset + limit]
         serialized_data = UserListSerializer(user_data, many=True).data
