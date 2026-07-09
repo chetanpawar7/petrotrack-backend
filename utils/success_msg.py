@@ -10,6 +10,10 @@ USER_DELETE_SUCCESS = "User deleted successfully"
 
 USER_LIST_FETCHED = "User list fetched successfully"
 
+USER_PROFILE_FETCHED = "User profile fetched successfully"
+
+USER_CREATED_SUCCESSFULLY = "User created successfully"
+
 RECEIPT_CREATED_SUCCESSFULLY = "Receipt created successfully"
 
 RECEIPT_LIST_FETCHED = "Receipt list fetched successfully"

@@ -20,13 +20,39 @@ class UserListView(APIView):
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class RegisterUserView(APIView):
+class GetUserProfileView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            logger_utils.main_info('Get User Profile Api Started....', {"user_id": getattr(request.user, "id", None)})
+            return helper.get_user_profile(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(),str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CreateStationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         try:
-            logger_utils.main_info('Register User Api Started....', request.data)
+            logger_utils.main_info('Create Station Api Started....', request.data)
             return helper.register_user(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(),str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CreateUserView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Create User Api Started....', request.data)
+            return helper.create_user(request)
         except Exception as e:
             logger_utils.main_exception(self.get_view_name(),str(e))
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)

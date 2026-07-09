@@ -3,7 +3,9 @@ from user import views as user_views
 
 urlpatterns = [
     path('user-list/', user_views.UserListView.as_view(), name='user_list'),
-    path('register-user/', user_views.RegisterUserView.as_view(), name='register_user'),
+    path('get-user-profile/', user_views.GetUserProfileView.as_view(), name='get_user_profile'),
+    path('create-station/', user_views.CreateStationView.as_view(), name='create_station'),
+    path('create-user/', user_views.CreateUserView.as_view(), name='create_user'),
     path('login/', user_views.LoginUserView.as_view(), name='login_user'),
     path('logout/', user_views.LogoutUserView.as_view(), name='logout_user'),
     path('update-user/', user_views.UpdateUserView.as_view(), name='update_user')
