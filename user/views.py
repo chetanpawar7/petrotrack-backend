@@ -42,6 +42,19 @@ class LoginUserView(APIView):
         except Exception as e:
             logger_utils.main_exception(self.get_view_name(),str(e))
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LogoutUserView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Logout User Api Started....', {"user_id": getattr(request.user, "id", None)})
+            return helper.logout_user(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(),str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
 class UpdateUserView(APIView):

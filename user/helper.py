@@ -170,13 +170,193 @@ def login_user(request):
 
     except Exception as e:
         raise e
+
+
+def logout_user(request):
+    try:
+        auth_header = request.headers.get("Authorization") or request.META.get("HTTP_AUTHORIZATION")
+        access_token = auth_header.split()[1] if auth_header else None
+
+        if not access_token:
+            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        is_logged_out = db_helper.logout_supabase_user(access_token)
+        if not is_logged_out:
+            response = response_translator.error_response(message=error_msg.USER_LOGOUT_FAILED)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        response = response_translator.success_response(
+            data={},
+            message=success_msg.USER_LOGOUT_SUCCESS
+        )
+        return Response(response, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        raise e
     
 
 def update_user(request):
     try:
         request_data = request.data
         user_id = request_data.get("user_id")
-        
+
+        if not user_id:
+            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        request_user = request.user
+        user_obj = (
+            UserMaster.objects
+            .filter(id=user_id, is_active=True)
+            .select_related("role", "sub_role", "fuel_station")
+            .first()
+        )
+        if not user_obj:
+            response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+            return Response(response, status=status.HTTP_404_NOT_FOUND)
+
+        if request_user.is_manager:
+            can_update_user = user_obj.is_operator and user_obj.fuel_station_id == request_user.fuel_station_id
+        elif request_user.is_admin:
+            can_update_user = True
+        else:
+            can_update_user = user_obj.id == request_user.id
+
+        if not can_update_user:
+            response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+            return Response(response, status=status.HTTP_404_NOT_FOUND)
+
+        email = request_data.get("email")
+        username = request_data.get("username")
+        mobile_number = request_data.get("mobile_number")
+        role_name = request_data.get("role_name")
+        sub_role_name = request_data.get("sub_role_name")
+        fuel_station_id = request_data.get("fuel_station_id")
+        station_name = request_data.get("station_name")
+        stn_address = request_data.get("stn_address")
+        stn_pincode = request_data.get("stn_pincode")
+
+        if fuel_station_id:
+            try:
+                fuel_station_id = int(fuel_station_id)
+            except (TypeError, ValueError):
+                response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        if email:
+            email_username = regex_utils.get_username_from_email(email)
+            if not email_username:
+                response = response_translator.error_response(message=error_msg.INVALID_EMAIL)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+            username = username or email_username
+
+        duplicate_filter = Q()
+        if email:
+            duplicate_filter |= Q(email=email)
+        if username:
+            duplicate_filter |= Q(username=username)
+        if mobile_number:
+            duplicate_filter |= Q(mobile_number=mobile_number)
+
+        if duplicate_filter and UserMaster.objects.filter(duplicate_filter, is_active=True).exclude(id=user_obj.id).exists():
+            response = response_translator.error_response(message=error_msg.USER_ALREADY_EXISTS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        role_obj = None
+        if role_name:
+            role_obj = RoleMaster.objects.filter(role_name=role_name, is_active=True).first()
+            if not role_obj:
+                response = response_translator.error_response(message=error_msg.ROLE_NOT_FOUND)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        sub_role_obj = None
+        if sub_role_name:
+            sub_role_obj = SubRoleMaster.objects.filter(sub_role_name=sub_role_name, is_active=True).first()
+            if not sub_role_obj:
+                response = response_translator.error_response(message=error_msg.SUB_ROLE_NOT_FOUND)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        if request_user.is_manager and role_obj and role_obj.role_name.upper() != "OPERATOR":
+            response = response_translator.error_response(message=error_msg.ROLE_NOT_FOUND)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        fuel_station_obj = None
+        if request_user.is_manager and (fuel_station_id or station_name):
+            if fuel_station_id and fuel_station_id != request_user.fuel_station_id:
+                response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+                return Response(response, status=status.HTTP_404_NOT_FOUND)
+            if station_name and (
+                not request_user.fuel_station
+                or request_user.fuel_station.station_name.lower() != station_name.lower()
+            ):
+                response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+                return Response(response, status=status.HTTP_404_NOT_FOUND)
+            fuel_station_obj = request_user.fuel_station
+        elif fuel_station_id:
+            fuel_station_obj = FuelStationMaster.objects.filter(id=fuel_station_id, is_active=True).first()
+            if not fuel_station_obj:
+                response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+        elif station_name:
+            fuel_station_obj = FuelStationMaster.objects.filter(station_name=station_name).first()
+            if fuel_station_obj and not fuel_station_obj.is_active:
+                response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+                return Response(response, status=status.HTTP_400_BAD_REQUEST)
+            if not fuel_station_obj:
+                fuel_station_obj = FuelStationMaster.objects.create(
+                    station_name=station_name,
+                    address=stn_address,
+                    pincode=stn_pincode,
+                    is_active=True,
+                    created_by=request_user,
+                    updated_by=request_user,
+                )
+
+        allowed_fields = ["first_name", "last_name", "address"]
+        if request_user.is_admin or request_user.is_manager:
+            allowed_fields.append("is_active")
+        with transaction.atomic():
+            for field in allowed_fields:
+                if field in request_data:
+                    setattr(user_obj, field, request_data.get(field))
+
+            if email:
+                user_obj.email = email
+            if username:
+                user_obj.username = username
+            if mobile_number:
+                user_obj.mobile_number = mobile_number
+            if role_obj and request_user.is_admin:
+                user_obj.role = role_obj
+            if sub_role_obj and (request_user.is_admin or request_user.is_manager):
+                user_obj.sub_role = sub_role_obj
+            if fuel_station_obj and (request_user.is_admin or request_user.is_manager):
+                user_obj.fuel_station = fuel_station_obj
+
+            if fuel_station_obj and (stn_address or stn_pincode):
+                if stn_address:
+                    fuel_station_obj.address = stn_address
+                if stn_pincode:
+                    fuel_station_obj.pincode = stn_pincode
+                fuel_station_obj.updated_by = request_user
+                fuel_station_obj.save()
+
+            user_obj.updated_by = request_user
+            user_obj.save()
+
+        serialized_data = UserListSerializer(user_obj).data
+        response = response_translator.success_response(
+            data=serialized_data,
+            message=success_msg.USER_UPDATE_SUCCESS
+        )
+        return Response(response, status=status.HTTP_200_OK)
 
     except Exception as e:
         raise e

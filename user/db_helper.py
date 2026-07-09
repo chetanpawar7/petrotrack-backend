@@ -36,6 +36,16 @@ def login_supabase_user(email, password):
         return None
 
 
+def logout_supabase_user(access_token):
+    try:
+        from petrotrack_backend.supabase_client import supabase
+
+        supabase.auth.admin.sign_out(access_token)
+        return True
+    except Exception:
+        return False
+
+
 def get_supabase_user_id(supabase_response):
     try:
         user = getattr(supabase_response, "user", None)

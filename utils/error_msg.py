@@ -10,6 +10,8 @@ USER_ALREADY_EXISTS = "User already exists"
 
 USER_CREATION_FAILED = "Failed to create user in Supabase"
 
+USER_LOGOUT_FAILED = "Failed to logout user"
+
 MISSING_REQUIRED_FIELDS= "Missing required fields"
 
 ROLE_NOT_FOUND= "Role not found"
