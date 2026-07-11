@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 import logging
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
@@ -59,8 +60,26 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    *[
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_URLS", "").split(",")
+        if origin.strip()
+    ],
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+
+# Allow Vercel production and preview deployment URLs.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://[a-zA-Z0-9-]+\.vercel\.app$",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.vercel.app",
+    *[
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_URLS", "").split(",")
+        if origin.strip()
+    ],
+]
 ROOT_URLCONF = 'petrotrack_backend.urls'
 
 TEMPLATES = [
@@ -84,7 +103,18 @@ WSGI_APPLICATION = 'petrotrack_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
+    }
+else:
+    DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('db_name','petrotrack-db'),
@@ -131,6 +161,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 #logger configuration
