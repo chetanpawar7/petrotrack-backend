@@ -7,7 +7,7 @@ def success_response(data, message, total_count=None):
         "message": message,
         "data": data
     }
-    if total_count:
+    if total_count is not None:
         response["total_count"] = total_count
     return response
 

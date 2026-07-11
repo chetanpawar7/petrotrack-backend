@@ -8,7 +8,7 @@ class UserListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserMaster
-        fields = ['id', 'username','first_name', 'last_name', 'email','mobile_number', 'role_name', 'sub_role_name', 'station_name','is_active', 'updated_at', 'updated_at']
+        fields = ['id', 'username','first_name', 'last_name', 'email', 'address','mobile_number', 'role_name', 'sub_role_name', 'station_name','is_active', 'updated_at', 'updated_at']
 
     def get_role_name(self, obj):
         return obj.role.role_name if obj.role else None

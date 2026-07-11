@@ -18,4 +18,6 @@ ROLE_NOT_FOUND= "Role not found"
 
 SUB_ROLE_NOT_FOUND= "Sub role not found"
 
+INVALID_DROPDOWN_TYPE = "Invalid dropdown type"
+
 RECEIPT_NOT_FOUND = "Receipt not found"

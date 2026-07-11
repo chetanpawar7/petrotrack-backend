@@ -8,6 +8,7 @@ urlpatterns = [
     path('create-user/', user_views.CreateUserView.as_view(), name='create_user'),
     path('login/', user_views.LoginUserView.as_view(), name='login_user'),
     path('logout/', user_views.LogoutUserView.as_view(), name='logout_user'),
-    path('update-user/', user_views.UpdateUserView.as_view(), name='update_user')
+    path('update-user/', user_views.UpdateUserView.as_view(), name='update_user'),
+    path('get-dropdown/', user_views.GetDropDownApiView.as_view(), name='get-dropdown'),
 ]
     

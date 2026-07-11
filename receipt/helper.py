@@ -181,6 +181,38 @@ def _receipt_data(receipt):
     }
 
 
+def _receipt_list_data(receipt):
+    operator_name = " ".join(
+        part for part in [receipt.operator.first_name, receipt.operator.last_name] if part
+    ).strip()
+
+    return {
+        "receipt_no": receipt.receipt_no,
+        "date": receipt.receipt_date.isoformat(),
+        "shift": receipt.shift,
+        "operator_id": receipt.operator_id,
+        "operator": operator_name or receipt.operator.username,
+        "fuel_sales": _decimal_to_string(receipt.total_fuel_sales),
+        "collection": _decimal_to_string(receipt.total_collection),
+        "expenses": _decimal_to_string(receipt.total_expenses),
+        "difference": _decimal_to_string(receipt.difference),
+        "status": receipt.status,
+    }
+
+
+def _receipt_detail_data(receipt):
+    data = _receipt_data(receipt)
+    operator_name = " ".join(
+        part for part in [receipt.operator.first_name, receipt.operator.last_name] if part
+    ).strip()
+    data["operator_name"] = operator_name or receipt.operator.username
+    data["station_name"] = (
+        receipt.operator.fuel_station.station_name
+        if receipt.operator.fuel_station else None
+    )
+    return data
+
+
 def create_receipt(request):
     try:
         request_data = request.data
@@ -371,40 +403,181 @@ def create_receipt(request):
         raise e
 
 
+def update_receipt(request):
+    request_data = request.data
+    receipt_id = request_data.get("receipt_id")
+    if not receipt_id:
+        return Response(
+            response_translator.error_response(message="receipt_id is required"),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    receipts = _filter_receipts_for_user(
+        ReceiptMaster.objects.filter(is_active=True, is_deleted=False),
+        request.user,
+    )
+    receipt = receipts.filter(id=receipt_id).first()
+    if not receipt:
+        return Response(
+            response_translator.error_response(message=error_msg.RECEIPT_NOT_FOUND),
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    errors = []
+    shift = request_data.get("shift", receipt.shift)
+    if shift not in {choice[0] for choice in ReceiptMaster.SHIFT_CHOICES}:
+        errors.append("shift must be MORNING, EVENING, or NIGHT")
+
+    operator = receipt.operator
+    if "operator_id" in request_data:
+        operator = _get_operator(request, request_data)
+        if not operator:
+            errors.append("operator not found or permission denied")
+
+    fuel_sales = None
+    if "fuel_sales" in request_data:
+        fuel_sales_data = request_data.get("fuel_sales")
+        fuel_sales = []
+        seen = set()
+        if not isinstance(fuel_sales_data, list) or not fuel_sales_data:
+            errors.append("fuel_sales must contain at least one item")
+        else:
+            valid_types = {choice[0] for choice in ReceiptFuelSale.FUEL_TYPE_CHOICES}
+            for index, item in enumerate(fuel_sales_data):
+                prefix = f"fuel_sales[{index}]"
+                if not isinstance(item, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                fuel_type = item.get("fuel_type")
+                if fuel_type not in valid_types:
+                    errors.append(f"{prefix}.fuel_type must be PETROL or DIESEL")
+                elif fuel_type in seen:
+                    errors.append(f"{prefix}.fuel_type is duplicated")
+                seen.add(fuel_type)
+                opening = _to_decimal(item.get("opening_reading"), f"{prefix}.opening_reading", errors)
+                closing = _to_decimal(item.get("closing_reading"), f"{prefix}.closing_reading", errors)
+                testing = _to_decimal(item.get("testing_qty", 0), f"{prefix}.testing_qty", errors, False)
+                rate = _to_decimal(item.get("rate_per_liter"), f"{prefix}.rate_per_liter", errors)
+                total_qty = closing - opening
+                sale_qty = total_qty - testing
+                if total_qty < DECIMAL_ZERO:
+                    errors.append(f"{prefix}.closing_reading cannot be less than opening_reading")
+                if sale_qty < DECIMAL_ZERO:
+                    errors.append(f"{prefix}.testing_qty cannot be greater than total_qty")
+                fuel_sales.append({"fuel_type": fuel_type, "opening_reading": opening,
+                    "closing_reading": closing, "testing_qty": testing, "rate_per_liter": rate,
+                    "total_qty": total_qty, "sale_qty": sale_qty, "amount": sale_qty * rate})
+
+    collection = None
+    if "collection" in request_data:
+        item = request_data.get("collection")
+        if not isinstance(item, dict):
+            errors.append("collection must be an object")
+        else:
+            collection = {key: _to_decimal(item.get(key, 0), f"collection.{key}", errors, False)
+                          for key in ("cash", "qr", "card", "credit")}
+
+    expenses = None
+    if "expenses" in request_data:
+        items = request_data.get("expenses")
+        expenses = []
+        if not isinstance(items, list):
+            errors.append("expenses must be a list")
+        else:
+            for index, item in enumerate(items):
+                prefix = f"expenses[{index}]"
+                if not isinstance(item, dict):
+                    errors.append(f"{prefix} must be an object")
+                    continue
+                name = item.get("expense_name")
+                if not name:
+                    errors.append(f"{prefix}.expense_name is required")
+                expenses.append({"expense_name": name, "amount": _to_decimal(item.get("amount"), f"{prefix}.amount", errors)})
+
+    denomination = None
+    if "denomination" in request_data:
+        item = request_data.get("denomination")
+        if not isinstance(item, dict):
+            errors.append("denomination must be an object")
+        else:
+            denomination = {key: _to_int(item.get(key, 0), f"denomination.{key}", errors)
+                            for key in ("note_500", "note_200", "note_100", "note_50", "note_20", "note_10")}
+            denomination["coins"] = _to_decimal(item.get("coins", 0), "denomination.coins", errors, False)
+
+    if errors:
+        return Response(response_translator.error_response(message=", ".join(errors)), status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        receipt.receipt_date = request_data.get("receipt_date", receipt.receipt_date)
+        receipt.shift = shift
+        receipt.operator = operator
+        receipt.updated_by = request.user
+        if fuel_sales is not None:
+            receipt.fuel_sales.all().delete()
+            ReceiptFuelSale.objects.bulk_create([ReceiptFuelSale(receipt=receipt, **item) for item in fuel_sales])
+        if collection is not None:
+            collection["total_collection"] = sum(collection.values(), DECIMAL_ZERO)
+            ReceiptCollection.objects.update_or_create(receipt=receipt, defaults=collection)
+        if expenses is not None:
+            receipt.expenses.all().delete()
+            ReceiptExpense.objects.bulk_create([ReceiptExpense(receipt=receipt, **item) for item in expenses])
+        if denomination is not None:
+            denomination["total_cash"] = sum(
+                Decimal(denomination[key] * value) for key, value in
+                (("note_500", 500), ("note_200", 200), ("note_100", 100), ("note_50", 50), ("note_20", 20), ("note_10", 10))
+            ) + denomination["coins"]
+            ReceiptDenomination.objects.update_or_create(receipt=receipt, defaults=denomination)
+
+        receipt.total_fuel_sales = sum((item.amount for item in receipt.fuel_sales.all()), DECIMAL_ZERO)
+        receipt.total_collection = receipt.collection.total_collection
+        receipt.total_expenses = sum((item.amount for item in receipt.expenses.all()), DECIMAL_ZERO)
+        receipt.expected_cash = receipt.collection.cash - receipt.total_expenses
+        receipt.actual_cash = receipt.denomination.total_cash
+        receipt.save()
+
+    receipt = (ReceiptMaster.objects.select_related("operator", "collection", "denomination")
+               .prefetch_related("fuel_sales", "expenses").get(id=receipt.id))
+    return Response(response_translator.success_response(
+        data=_receipt_data(receipt), message=success_msg.RECEIPT_UPDATED_SUCCESSFULLY
+    ), status=status.HTTP_200_OK)
+
+
 def get_receipts(request):
     try:
         limit = int(request.query_params.get("limit", 10))
         offset = int(request.query_params.get("offset", 0))
-        search = request.query_params.get("search")
-        receipt_date = request.query_params.get("receipt_date")
+        search_text = request.query_params.get("search_text") or request.query_params.get("search")
+        selected_date = (
+            request.query_params.get("selected_date")
+            or request.query_params.get("receipt_date")
+        )
         shift = request.query_params.get("shift")
         receipt_status = request.query_params.get("status")
 
         receipts = (
             ReceiptMaster.objects
             .filter(is_active=True, is_deleted=False)
-            .select_related("operator", "collection", "denomination")
-            .prefetch_related("fuel_sales", "expenses")
+            .select_related("operator")
             .order_by("-id")
         )
         receipts = _filter_receipts_for_user(receipts, request.user)
 
-        if search:
+        if search_text:
             receipts = receipts.filter(
-                Q(receipt_no__icontains=search)
-                | Q(operator__username__icontains=search)
-                | Q(operator__first_name__icontains=search)
-                | Q(operator__last_name__icontains=search)
+                Q(receipt_no__icontains=search_text)
+                | Q(operator__username__icontains=search_text)
+                | Q(operator__first_name__icontains=search_text)
+                | Q(operator__last_name__icontains=search_text)
             )
 
-        if receipt_date:
-            receipts = receipts.filter(receipt_date=receipt_date)
+        if selected_date:
+            receipts = receipts.filter(receipt_date=selected_date)
 
         if shift:
-            receipts = receipts.filter(shift=shift)
+            receipts = receipts.filter(shift__iexact=shift.strip())
 
         if receipt_status:
-            receipts = receipts.filter(status=receipt_status)
+            receipts = receipts.filter(status__iexact=receipt_status.strip())
 
         total_count = receipts.count()
         summary_data = _summary_data(receipts)
@@ -413,7 +586,7 @@ def get_receipts(request):
         response = response_translator.success_response(
             data={
                 "summary_data": summary_data,
-                "receipts": [_receipt_data(receipt) for receipt in paginated_receipts],
+                "receipts": [_receipt_list_data(receipt) for receipt in paginated_receipts],
             },
             message=success_msg.RECEIPT_LIST_FETCHED,
             total_count=total_count
@@ -436,7 +609,12 @@ def get_receipt_detail(request):
         receipts = (
             ReceiptMaster.objects
             .filter(is_active=True, is_deleted=False)
-            .select_related("operator", "collection", "denomination")
+            .select_related(
+                "operator",
+                "operator__fuel_station",
+                "collection",
+                "denomination",
+            )
             .prefetch_related("fuel_sales", "expenses")
         )
         receipts = _filter_receipts_for_user(receipts, request.user)
@@ -451,7 +629,7 @@ def get_receipt_detail(request):
             return Response(response, status=status.HTTP_404_NOT_FOUND)
 
         response = response_translator.success_response(
-            data=_receipt_data(receipt),
+            data=_receipt_detail_data(receipt),
             message=success_msg.RECEIPT_DETAIL_FETCHED
         )
         return Response(response, status=status.HTTP_200_OK)

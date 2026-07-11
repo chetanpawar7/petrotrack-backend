@@ -14,7 +14,11 @@ USER_PROFILE_FETCHED = "User profile fetched successfully"
 
 USER_CREATED_SUCCESSFULLY = "User created successfully"
 
+DROPDOWN_FETCHED_SUCCESSFULLY = "Dropdown fetched successfully"
+
 RECEIPT_CREATED_SUCCESSFULLY = "Receipt created successfully"
+
+RECEIPT_UPDATED_SUCCESSFULLY = "Receipt updated successfully"
 
 RECEIPT_LIST_FETCHED = "Receipt list fetched successfully"
 

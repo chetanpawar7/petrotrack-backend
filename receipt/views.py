@@ -33,6 +33,19 @@ class GetReceiptsView(APIView):
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class UpdateReceiptView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Update Receipt Api Started....', request.data)
+            return helper.update_receipt(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(), str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class GetReceiptDetailView(APIView):
     authentication_classes = [SupabaseAuthentication]
     permission_classes = [IsAuthenticated]

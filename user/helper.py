@@ -2,7 +2,7 @@ from django.db import transaction
 from django.db.models import Q
 from user.models import FuelStationMaster, UserMaster, RoleMaster, SubRoleMaster
 from user.serializer import UserListSerializer
-from utils import error_msg, success_msg, response_translator, regex_utils
+from utils import error_msg, success_msg, response_translator, regex_utils, constants
 from rest_framework.response import Response
 from rest_framework import status
 from user import db_helper
@@ -13,9 +13,10 @@ def get_user_list(request):
         limit = request_data.get("limit", 10)
         offset = request_data.get("offset", 0)
         fuel_station_id = request_data.get("fuel_station_id")
+        search_text = request_data.get('search_text',None)
         request_user = request.user
-
-        user_data = UserMaster.objects.filter(is_active=True).select_related("role", "sub_role", "fuel_station")
+        
+        user_data = UserMaster.objects.select_related("role", "sub_role", "fuel_station")
 
         if request_user.is_admin:
             if fuel_station_id:
@@ -27,6 +28,14 @@ def get_user_list(request):
             )
         else:
             user_data = user_data.filter(id=request_user.id)
+        
+        if search_text:
+            user_data = user_data.filter(
+                Q(username__icontains=search_text) |
+                Q(first_name__icontains=search_text) |
+                Q(last_name__icontains=search_text) |
+                Q(email__icontains=search_text)
+            )
 
         user_data = user_data.order_by('-updated_at')
         total_count = user_data.count()
@@ -166,7 +175,6 @@ def create_user(request):
         mobile_number = request_data.get("mobile_number")
         password = request_data.get("password")
         role_name = request_data.get("role_name")
-        sub_role_name = request_data.get("sub_role_name")
         user_address = request_data.get("user_address") or request_data.get("address")
         fuel_station_id = request_data.get("fuel_station_id")
 
@@ -189,20 +197,6 @@ def create_user(request):
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
 
         if role_obj.role_name.upper() == "MANAGER" and not password:
-            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
-            return Response(response, status=status.HTTP_400_BAD_REQUEST)
-
-        sub_role_obj = None
-        if sub_role_name:
-            sub_role_obj = SubRoleMaster.objects.filter(
-                sub_role_name__iexact=sub_role_name,
-                role=role_obj,
-                is_active=True
-            ).first()
-            if not sub_role_obj:
-                response = response_translator.error_response(message=error_msg.SUB_ROLE_NOT_FOUND)
-                return Response(response, status=status.HTTP_400_BAD_REQUEST)
-        elif role_obj.role_name.upper() == "OPERATOR":
             response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
 
@@ -251,7 +245,6 @@ def create_user(request):
                 email=email,
                 mobile_number=mobile_number,
                 role=role_obj,
-                sub_role=sub_role_obj,
                 fuel_station=fuel_stn_obj,
                 address=user_address,
                 is_active=True,
@@ -371,7 +364,7 @@ def update_user(request):
         request_user = request.user
         user_obj = (
             UserMaster.objects
-            .filter(id=user_id, is_active=True)
+            .filter(id=user_id)
             .select_related("role", "sub_role", "fuel_station")
             .first()
         )
@@ -428,7 +421,7 @@ def update_user(request):
 
         role_obj = None
         if role_name:
-            role_obj = RoleMaster.objects.filter(role_name=role_name, is_active=True).first()
+            role_obj = RoleMaster.objects.filter(role_name__iexact=role_name, is_active=True).first()
             if not role_obj:
                 response = response_translator.error_response(message=error_msg.ROLE_NOT_FOUND)
                 return Response(response, status=status.HTTP_400_BAD_REQUEST)
@@ -517,3 +510,96 @@ def update_user(request):
 
     except Exception as e:
         raise e
+
+
+def get_dropdown(request):
+    try:
+        dropdown_type = request.data.get("dropdown_type")
+
+        try:
+            limit = int(request.data.get("limit", 10))
+            offset = int(request.data.get("offset", 0))
+            if limit <= 0 or offset < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            response = response_translator.error_response(
+                message="limit must be greater than 0 and offset cannot be negative"
+            )
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        dropdown_handlers = {
+            constants.USERS: get_dropdown_users,
+            constants.ROLES: get_dropdown_roles,
+        }
+        handler = dropdown_handlers.get(dropdown_type)
+        if handler is None:
+            response = response_translator.error_response(
+                message=error_msg.INVALID_DROPDOWN_TYPE
+            )
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        data, total_count = handler(request, limit, offset)
+        response = response_translator.success_response(
+            data=data,
+            message=success_msg.DROPDOWN_FETCHED_SUCCESSFULLY,
+            total_count=total_count,
+        )
+        return Response(response, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        raise e
+
+
+def get_dropdown_users(request, limit, offset):
+    request_user = request.user
+    search_text = str(request.data.get("search_text") or "").strip()
+    users = UserMaster.objects.filter(is_active=True)
+
+    if request_user.is_admin:
+        fuel_station_id = request.data.get("fuel_station_id")
+        if fuel_station_id:
+            users = users.filter(fuel_station_id=fuel_station_id)
+    elif request_user.is_manager:
+        users = users.filter(
+            fuel_station_id=request_user.fuel_station_id,
+            role__role_name__iexact="OPERATOR",
+        )
+    else:
+        users = users.filter(id=request_user.id)
+
+    if search_text:
+        users = users.filter(
+            Q(first_name__icontains=search_text)
+            | Q(last_name__icontains=search_text)
+            | Q(username__icontains=search_text)
+            | Q(email__icontains=search_text)
+        )
+
+    total_count = users.count()
+    data = list(
+        users.order_by("first_name", "last_name", "id").values(
+            "id", "first_name", "last_name", "username"
+        )[offset:offset + limit]
+    )
+    return data, total_count
+
+
+def get_dropdown_roles(request, limit, offset):
+    search_text = str(request.data.get("search_text") or "").strip()
+    roles = RoleMaster.objects.filter(is_active=True)
+
+    if request.user.is_manager:
+        roles = roles.filter(
+            Q(role_name__iexact="OPERATOR") | Q(role_name__iexact="MANAGER")
+        )
+    elif not request.user.is_admin:
+        roles = roles.filter(id=request.user.role_id)
+
+    if search_text:
+        roles = roles.filter(role_name__icontains=search_text)
+
+    total_count = roles.count()
+    data = list(
+        roles.order_by("role_name").values("id", "role_name")[offset:offset + limit]
+    )
+    return data, total_count
