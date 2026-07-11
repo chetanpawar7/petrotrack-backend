@@ -60,8 +60,26 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    *[
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_URLS", "").split(",")
+        if origin.strip()
+    ],
 ]
-CORS_ALLOW_ALL_ORIGINS = True
+
+# Allow Vercel production and preview deployment URLs.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://[a-zA-Z0-9-]+\.vercel\.app$",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.vercel.app",
+    *[
+        origin.strip().rstrip("/")
+        for origin in os.getenv("FRONTEND_URLS", "").split(",")
+        if origin.strip()
+    ],
+]
 ROOT_URLCONF = 'petrotrack_backend.urls'
 
 TEMPLATES = [
