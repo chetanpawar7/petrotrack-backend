@@ -16,6 +16,8 @@ USER_CREATED_SUCCESSFULLY = "User created successfully"
 
 DROPDOWN_FETCHED_SUCCESSFULLY = "Dropdown fetched successfully"
 
+PAGE_PERMISSIONS_FETCHED_SUCCESSFULLY = "Page permissions fetched successfully"
+
 RECEIPT_CREATED_SUCCESSFULLY = "Receipt created successfully"
 
 RECEIPT_UPDATED_SUCCESSFULLY = "Receipt updated successfully"
@@ -23,3 +25,5 @@ RECEIPT_UPDATED_SUCCESSFULLY = "Receipt updated successfully"
 RECEIPT_LIST_FETCHED = "Receipt list fetched successfully"
 
 RECEIPT_DETAIL_FETCHED = "Receipt detail fetched successfully"
+
+DASHBOARD_DATA_FETCHED = "Dashboard data fetched successfully"

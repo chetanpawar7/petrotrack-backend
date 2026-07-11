@@ -6,4 +6,5 @@ urlpatterns = [
     path('update-receipt/', receipt_views.UpdateReceiptView.as_view(), name='update_receipt'),
     path('get-receipts/', receipt_views.GetReceiptsView.as_view(), name='get_receipts'),
     path('get-receipt-detail/', receipt_views.GetReceiptDetailView.as_view(), name='get_receipt_detail'),
+    path('get-dashboard/', receipt_views.GetDashboardView.as_view(), name='get_dashboard'),
 ]

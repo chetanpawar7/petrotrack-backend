@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
-from user.models import FuelStationMaster, UserMaster, RoleMaster, SubRoleMaster
+from user.models import FuelStationMaster, UserMaster, RoleMaster, SubRoleMaster, PageMaster, PageDetail
 from user.serializer import UserListSerializer
 from utils import error_msg, success_msg, response_translator, regex_utils, constants
 from rest_framework.response import Response
@@ -603,3 +603,78 @@ def get_dropdown_roles(request, limit, offset):
         roles.order_by("role_name").values("id", "role_name")[offset:offset + limit]
     )
     return data, total_count
+
+
+def get_page_perm(request):
+    try:
+        request_user = request.user
+        try:
+            limit = int(request.data.get("limit", 10))
+            offset = int(request.data.get("offset", 0))
+        except (TypeError, ValueError):
+            return Response(
+                response_translator.error_response(message="Invalid limit or offset"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if limit <= 0 or offset < 0:
+            return Response(
+                response_translator.error_response(message="Invalid limit or offset"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not request_user.role_id:
+            return Response(
+                response_translator.error_response(message=error_msg.DATA_NOT_FOUND),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        sub_role_filter = Q(sub_role_id=request_user.sub_role_id)
+        if request_user.sub_role_id:
+            # A null sub-role represents permissions shared by the whole role.
+            sub_role_filter |= Q(sub_role__isnull=True)
+
+        permissions = (
+            PageDetail.objects.filter(
+                Q(role_id=request_user.role_id),
+                sub_role_filter,
+                is_active=True,
+                page__is_active=True,
+            )
+            .select_related("page", "page__parent")
+            .order_by("page__display_order", "page_id", "control_type")
+        )
+
+        pages = {}
+        for permission in permissions:
+            page = permission.page
+            page_data = pages.setdefault(
+                page.id,
+                {
+                    "id": page.id,
+                    "page_name": page.page_name,
+                    "page_code": page.page_code,
+                    "route_path": page.route_path,
+                    "icon": page.icon,
+                    "parent_id": page.parent_id,
+                    "display_order": page.display_order,
+                    "is_menu": page.is_menu,
+                    "permissions": [],
+                },
+            )
+            if permission.control_type not in page_data["permissions"]:
+                page_data["permissions"].append(permission.control_type)
+
+        page_list = list(pages.values())
+        total_count = len(page_list)
+        page_list = page_list[offset:offset + limit]
+
+        response = response_translator.success_response(
+            data=page_list,
+            message=success_msg.PAGE_PERMISSIONS_FETCHED_SUCCESSFULLY,
+            total_count=total_count,
+        )
+        return Response(response, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        raise e

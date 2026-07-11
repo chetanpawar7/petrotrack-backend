@@ -2,6 +2,8 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -102,6 +104,69 @@ def _can_manage_operator(user, operator):
         return operator.is_operator and operator.fuel_station_id == user.fuel_station_id
 
     return user.id == operator.id
+
+
+def get_dashboard(request):
+    try:
+        selected_date_value = request.data.get("selected_date")
+        selected_date = parse_date(selected_date_value) if selected_date_value else timezone.localdate()
+        if not selected_date:
+            response = response_translator.error_response(
+                message=error_msg.INVALID_SELECTED_DATE
+            )
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+        receipts = ReceiptMaster.objects.filter(
+            receipt_date=selected_date,
+            is_active=True,
+            is_deleted=False,
+        )
+        receipts = _filter_receipts_for_user(receipts, request.user)
+
+        totals = receipts.aggregate(
+            total_fuel_sales=Sum("total_fuel_sales"),
+            total_collection=Sum("total_collection"),
+            total_expenses=Sum("total_expenses"),
+            expected_balance=Sum("expected_cash"),
+            actual_cash=Sum("actual_cash"),
+            receipts_generated=Count("id"),
+        )
+
+        expected_balance = totals.get("expected_balance") or DECIMAL_ZERO
+        actual_cash = totals.get("actual_cash") or DECIMAL_ZERO
+        difference = actual_cash - expected_balance
+        if difference == DECIMAL_ZERO:
+            closing_status = "BALANCED"
+        elif difference < DECIMAL_ZERO:
+            closing_status = "SHORT"
+        else:
+            closing_status = "EXCESS"
+
+        data = {
+            "selected_date": str(selected_date),
+            "today_fuel_sales": _decimal_to_string(
+                totals.get("total_fuel_sales") or DECIMAL_ZERO
+            ),
+            "total_collection": _decimal_to_string(
+                totals.get("total_collection") or DECIMAL_ZERO
+            ),
+            "total_expenses": _decimal_to_string(
+                totals.get("total_expenses") or DECIMAL_ZERO
+            ),
+            "receipts_generated": totals.get("receipts_generated") or 0,
+            "closing_status": {
+                "expected_balance": _decimal_to_string(expected_balance),
+                "actual_cash": _decimal_to_string(actual_cash),
+                "difference": _decimal_to_string(difference),
+                "status": closing_status,
+            },
+        }
+        response = response_translator.success_response(
+            data=data,
+            message=success_msg.DASHBOARD_DATA_FETCHED,
+        )
+        return Response(response, status=status.HTTP_200_OK)
+    except Exception as e:
+        raise e
 
 
 def _get_operator(request, request_data):

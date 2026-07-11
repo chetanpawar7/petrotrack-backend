@@ -10,5 +10,6 @@ urlpatterns = [
     path('logout/', user_views.LogoutUserView.as_view(), name='logout_user'),
     path('update-user/', user_views.UpdateUserView.as_view(), name='update_user'),
     path('get-dropdown/', user_views.GetDropDownApiView.as_view(), name='get-dropdown'),
+    path('get-page-perm/',user_views.GetPagePermApiView.as_view(), name='get-page-list')
 ]
     

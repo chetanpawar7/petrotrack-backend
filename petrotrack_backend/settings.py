@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'user',
     'receipt',
-    'dashboard',
+    'admin_api',
 ]
 
 MIDDLEWARE = [
