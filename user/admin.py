@@ -67,9 +67,9 @@ class UserMasterAdmin(admin.ModelAdmin):
 
 @admin.register(PageMaster)
 class PageMasterAdmin(admin.ModelAdmin):
-    list_display = ('id', 'page_name', 'page_code', 'route_path', 'parent', 'display_order', 'is_menu', 'is_active')
-    search_fields = ('page_name', 'page_code', 'route_path')
-    list_filter = ('is_menu', 'is_active', 'parent')
+    list_display = ('id', 'page_name', 'page_code', 'route_path', 'source', 'parent', 'display_order', 'is_menu', 'is_active')
+    search_fields = ('page_name', 'page_code', 'route_path', 'source')
+    list_filter = ('source', 'is_menu', 'is_active', 'parent')
     ordering = ('display_order', 'id')
 
 
