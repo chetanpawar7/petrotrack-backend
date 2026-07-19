@@ -81,6 +81,18 @@ class LogoutUserView(APIView):
         except Exception as e:
             logger_utils.main_exception(self.get_view_name(),str(e))
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Forgot Password Api Started....', {"email": request.data.get("email")})
+            return helper.forgot_password(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(),str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
 class UpdateUserView(APIView):

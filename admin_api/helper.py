@@ -1,9 +1,16 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework import status
 from rest_framework.response import Response
 
-from user.models import PageDetail, PageMaster, RoleMaster, SubRoleMaster
+from user.models import (
+    FuelStationMaster,
+    FuelStationSubscription,
+    PageDetail,
+    PageMaster,
+    RoleMaster,
+    SubRoleMaster,
+)
 from utils import error_msg, response_translator, success_msg
 
 
@@ -344,3 +351,131 @@ def get_page_list(request):
         ),
         status=status.HTTP_200_OK,
     )
+
+
+
+def get_station_list(request):
+    if not request.user.is_admin:
+        return Response(response_translator.error_response(message=error_msg.ADMIN_ACCESS_REQUIRED), status=status.HTTP_403_FORBIDDEN)
+    
+    request_data = request.data
+    try:
+        limit = int(request_data.get("limit", 10))
+        offset = int(request_data.get("offset", 0))
+        if limit <= 0 or offset < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return Response(
+            response_translator.error_response(message="Invalid limit or offset"),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    stations = FuelStationMaster.objects.annotate(user_count=Count("usermaster", distinct=True))
+
+    station_id = request_data.get("station_id")
+    if station_id:
+        stations = stations.filter(id=station_id)
+
+    if "is_active" in request_data:
+        stations = stations.filter(is_active=get_bool_value(request_data.get("is_active")))
+
+    search_text = str(request_data.get("search_text") or "").strip()
+    if search_text:
+        stations = stations.filter(
+            Q(station_name__icontains=search_text)
+            | Q(address__icontains=search_text)
+            | Q(pincode__icontains=search_text)
+        )
+
+    subscription_status = request_data.get("subscription_status")
+    if subscription_status:
+        stations = stations.filter(subscriptions__status=str(subscription_status).strip().upper())
+
+    total_count = stations.distinct().count()
+    station_list = list(
+        stations.distinct().order_by("-updated_at", "-id")[offset:offset + limit]
+    )
+
+    station_ids = [station.id for station in station_list]
+    subscriptions = (
+        FuelStationSubscription.objects.select_related("plan")
+        .filter(fuel_station_id__in=station_ids)
+        .order_by("fuel_station_id", "-end_date", "-id")
+    )
+    if subscription_status:
+        subscriptions = subscriptions.filter(status=str(subscription_status).strip().upper())
+
+    stations_by_id = {
+        station.id: station
+        for station in FuelStationMaster.objects.filter(id__in=station_ids).prefetch_related(
+            Prefetch("subscriptions", queryset=subscriptions, to_attr="prefetched_subscriptions")
+        )
+    }
+
+    def format_subscription(subscription):
+        plan = subscription.plan
+        return {
+            "subscription_id": subscription.id,
+            "plan_id": plan.id if plan else None,
+            "plan_name": plan.plan_name if plan else None,
+            "plan_code": plan.plan_code if plan else None,
+            "billing_cycle": plan.billing_cycle if plan else None,
+            "max_users": plan.max_users if plan else None,
+            "status": subscription.status,
+            "payment_status": subscription.payment_status,
+            "amount": str(subscription.amount),
+            "payment_reference": subscription.payment_reference,
+            "start_date": subscription.start_date.isoformat() if subscription.start_date else None,
+            "end_date": subscription.end_date.isoformat() if subscription.end_date else None,
+            "is_active": subscription.is_active,
+            "is_subscription_valid": subscription.is_subscription_valid,
+            "notes": subscription.notes,
+        }
+
+    result = []
+    for station in station_list:
+        station_with_subscriptions = stations_by_id.get(station.id)
+        station_subscriptions = (
+            station_with_subscriptions.prefetched_subscriptions
+            if station_with_subscriptions else []
+        )
+        current_subscription = next(
+            (
+                subscription
+                for subscription in station_subscriptions
+                if subscription.is_subscription_valid
+            ),
+            station_subscriptions[0] if station_subscriptions else None,
+        )
+
+        result.append(
+            {
+                "station_id": station.id,
+                "station_name": station.station_name,
+                "address": station.address,
+                "pincode": station.pincode,
+                "is_active": station.is_active,
+                "user_count": station.user_count,
+                "created_at": station.created_at.isoformat() if station.created_at else None,
+                "updated_at": station.updated_at.isoformat() if station.updated_at else None,
+                "current_subscription": (
+                    format_subscription(current_subscription)
+                    if current_subscription else None
+                ),
+                "subscriptions": [
+                    format_subscription(subscription)
+                    for subscription in station_subscriptions
+                ],
+            }
+        )
+
+    return Response(
+        response_translator.success_response(
+            data=result,
+            message=success_msg.STATION_LIST_FETCHED,
+            total_count=total_count,
+        ),
+        status=status.HTTP_200_OK,
+    )
+
+    
