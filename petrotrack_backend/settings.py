@@ -117,11 +117,11 @@ else:
     DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('db_name','petrotrack-db'),
-        'USER': os.getenv('db_user','postgres'),
-        'PASSWORD': os.getenv('db_password','postgres'),
-        'HOST': os.getenv('db_host','localhost'),
-        'PORT': os.getenv('db_port','5432'),
+        'NAME': os.getenv('db_name'),
+        'USER': os.getenv('db_user'),
+        'PASSWORD': os.getenv('db_password'),
+        'HOST': os.getenv('db_host'),
+        'PORT': os.getenv('db_port'),
     }
 }
 

@@ -1,34 +1,25 @@
 services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${db_name:-petrotrack-db}
-      POSTGRES_USER: ${db_user:-postgres}
-      POSTGRES_PASSWORD: ${db_password:-postgres}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   web:
     build:
       context: .
       dockerfile: DockerFile
+
+    container_name: petrotrack_web
+
     restart: unless-stopped
+
     env_file:
       - .env
-    environment:
-      db_host: db
-      db_port: "5432"
+
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
 
-volumes:
-  postgres_data:
+    command: >
+      sh -c "
+      python manage.py migrate &&
+      python manage.py collectstatic --noinput &&
+      gunicorn petrotrack_backend.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 3
+      --timeout 120
+      "

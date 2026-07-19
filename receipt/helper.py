@@ -59,6 +59,29 @@ def _decimal_to_string(value):
     return str(Decimal(value).quantize(Decimal("0.01")))
 
 
+def _fuel_sale_label(fuel_type, index):
+    if fuel_type:
+        return str(fuel_type).upper()
+    return f"Fuel sale item {index + 1}"
+
+
+def _fuel_sale_validation_response(fuel_sales):
+    return [
+        {
+            "fuel_type": fuel_sale["fuel_type"],
+            "opening_reading": _decimal_to_string(fuel_sale["opening_reading"]),
+            "closing_reading": _decimal_to_string(fuel_sale["closing_reading"]),
+            "total_qty": _decimal_to_string(fuel_sale["total_qty"]),
+            "testing_qty": _decimal_to_string(fuel_sale["testing_qty"]),
+            "sale_qty": _decimal_to_string(fuel_sale["sale_qty"]),
+            "rate_per_liter": _decimal_to_string(fuel_sale["rate_per_liter"]),
+            "amount": _decimal_to_string(fuel_sale["amount"]),
+            "reading_validation": "closing_reading is greater than opening_reading",
+        }
+        for fuel_sale in fuel_sales
+    ]
+
+
 def _summary_data(receipts):
     summary = receipts.aggregate(
         total_receipts=Count("id"),
@@ -290,8 +313,11 @@ def create_receipt(request):
         expenses_data = request_data.get("expenses", [])
         denomination_data = request_data.get("denomination")
 
+        parsed_receipt_date = parse_date(receipt_date) if receipt_date else None
         if not receipt_date:
             errors.append("receipt_date is required")
+        elif not parsed_receipt_date:
+            errors.append("receipt_date must be in YYYY-MM-DD format")
 
         valid_shifts = {choice[0] for choice in ReceiptMaster.SHIFT_CHOICES}
         if shift not in valid_shifts:
@@ -323,30 +349,32 @@ def create_receipt(request):
 
         if isinstance(fuel_sales_data, list):
             for index, fuel_sale_data in enumerate(fuel_sales_data):
-                prefix = f"fuel_sales[{index}]"
                 if not isinstance(fuel_sale_data, dict):
-                    errors.append(f"{prefix} must be an object")
+                    errors.append(f"Fuel sale item {index + 1} must be a valid object")
                     continue
 
                 fuel_type = fuel_sale_data.get("fuel_type")
+                fuel_label = _fuel_sale_label(fuel_type, index)
                 if fuel_type not in valid_fuel_types:
-                    errors.append(f"{prefix}.fuel_type must be PETROL or DIESEL")
+                    errors.append(f"{fuel_label} fuel type must be PETROL or DIESEL")
                 elif fuel_type in seen_fuel_types:
-                    errors.append(f"{prefix}.fuel_type is duplicated")
+                    errors.append(f"{fuel_label} fuel type is duplicated")
                 seen_fuel_types.add(fuel_type)
 
-                opening_reading = _to_decimal(fuel_sale_data.get("opening_reading"), f"{prefix}.opening_reading", errors)
-                closing_reading = _to_decimal(fuel_sale_data.get("closing_reading"), f"{prefix}.closing_reading", errors)
-                testing_qty = _to_decimal(fuel_sale_data.get("testing_qty", 0), f"{prefix}.testing_qty", errors, required=False)
-                rate_per_liter = _to_decimal(fuel_sale_data.get("rate_per_liter"), f"{prefix}.rate_per_liter", errors)
+                opening_reading = _to_decimal(fuel_sale_data.get("opening_reading"), f"{fuel_label} opening reading", errors)
+                closing_reading = _to_decimal(fuel_sale_data.get("closing_reading"), f"{fuel_label} closing reading", errors)
+                testing_qty = _to_decimal(fuel_sale_data.get("testing_qty", 0), f"{fuel_label} testing quantity", errors, required=False)
+                rate_per_liter = _to_decimal(fuel_sale_data.get("rate_per_liter"), f"{fuel_label} rate per liter", errors)
+                if rate_per_liter <= DECIMAL_ZERO:
+                    errors.append(f"{fuel_label} rate per liter must be greater than 0")
 
                 total_qty = closing_reading - opening_reading
-                if total_qty < DECIMAL_ZERO:
-                    errors.append(f"{prefix}.closing_reading cannot be less than opening_reading")
+                if total_qty <= DECIMAL_ZERO:
+                    errors.append(f"{fuel_label} closing reading must be greater than opening reading")
 
                 sale_qty = total_qty - testing_qty
                 if sale_qty < DECIMAL_ZERO:
-                    errors.append(f"{prefix}.testing_qty cannot be greater than total_qty")
+                    errors.append(f"{fuel_label} testing quantity cannot be greater than total quantity")
 
                 amount = sale_qty * rate_per_liter
                 total_fuel_sales += amount
@@ -407,9 +435,18 @@ def create_receipt(request):
             response = response_translator.error_response(message=", ".join(errors))
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
 
+        validation_summary = {
+            "fuel_sales": _fuel_sale_validation_response(fuel_sales),
+            "total_fuel_sales": _decimal_to_string(total_fuel_sales),
+            "total_collection": _decimal_to_string(total_collection),
+            "total_expenses": _decimal_to_string(total_expenses),
+            "expected_cash": _decimal_to_string(expected_cash),
+            "actual_cash": _decimal_to_string(actual_cash),
+        }
+
         with transaction.atomic():
             receipt = ReceiptMaster.objects.create(
-                receipt_date=receipt_date,
+                receipt_date=parsed_receipt_date,
                 shift=shift,
                 operator=operator,
                 total_fuel_sales=total_fuel_sales,
@@ -458,8 +495,10 @@ def create_receipt(request):
             .prefetch_related("fuel_sales", "expenses")
             .get(id=receipt.id)
         )
+        receipt_data = _receipt_data(receipt)
+        receipt_data["validation_summary"] = validation_summary
         response = response_translator.success_response(
-            data=_receipt_data(receipt),
+            data=receipt_data,
             message=success_msg.RECEIPT_CREATED_SUCCESSFULLY
         )
         return Response(response, status=status.HTTP_201_CREATED)
@@ -509,26 +548,28 @@ def update_receipt(request):
         else:
             valid_types = {choice[0] for choice in ReceiptFuelSale.FUEL_TYPE_CHOICES}
             for index, item in enumerate(fuel_sales_data):
-                prefix = f"fuel_sales[{index}]"
                 if not isinstance(item, dict):
-                    errors.append(f"{prefix} must be an object")
+                    errors.append(f"Fuel sale item {index + 1} must be a valid object")
                     continue
                 fuel_type = item.get("fuel_type")
+                fuel_label = _fuel_sale_label(fuel_type, index)
                 if fuel_type not in valid_types:
-                    errors.append(f"{prefix}.fuel_type must be PETROL or DIESEL")
+                    errors.append(f"{fuel_label} fuel type must be PETROL or DIESEL")
                 elif fuel_type in seen:
-                    errors.append(f"{prefix}.fuel_type is duplicated")
+                    errors.append(f"{fuel_label} fuel type is duplicated")
                 seen.add(fuel_type)
-                opening = _to_decimal(item.get("opening_reading"), f"{prefix}.opening_reading", errors)
-                closing = _to_decimal(item.get("closing_reading"), f"{prefix}.closing_reading", errors)
-                testing = _to_decimal(item.get("testing_qty", 0), f"{prefix}.testing_qty", errors, False)
-                rate = _to_decimal(item.get("rate_per_liter"), f"{prefix}.rate_per_liter", errors)
+                opening = _to_decimal(item.get("opening_reading"), f"{fuel_label} opening reading", errors)
+                closing = _to_decimal(item.get("closing_reading"), f"{fuel_label} closing reading", errors)
+                testing = _to_decimal(item.get("testing_qty", 0), f"{fuel_label} testing quantity", errors, False)
+                rate = _to_decimal(item.get("rate_per_liter"), f"{fuel_label} rate per liter", errors)
+                if rate <= DECIMAL_ZERO:
+                    errors.append(f"{fuel_label} rate per liter must be greater than 0")
                 total_qty = closing - opening
                 sale_qty = total_qty - testing
-                if total_qty < DECIMAL_ZERO:
-                    errors.append(f"{prefix}.closing_reading cannot be less than opening_reading")
+                if total_qty <= DECIMAL_ZERO:
+                    errors.append(f"{fuel_label} closing reading must be greater than opening reading")
                 if sale_qty < DECIMAL_ZERO:
-                    errors.append(f"{prefix}.testing_qty cannot be greater than total_qty")
+                    errors.append(f"{fuel_label} testing quantity cannot be greater than total quantity")
                 fuel_sales.append({"fuel_type": fuel_type, "opening_reading": opening,
                     "closing_reading": closing, "testing_qty": testing, "rate_per_liter": rate,
                     "total_qty": total_qty, "sale_qty": sale_qty, "amount": sale_qty * rate})

@@ -10,7 +10,11 @@ USER_ALREADY_EXISTS = "User already exists"
 
 USER_CREATION_FAILED = "Failed to create user in Supabase"
 
+USER_DELETION_FAILED = "Failed to delete user from Supabase"
+
 USER_LOGOUT_FAILED = "Failed to logout user"
+
+PASSWORD_RESET_EMAIL_FAILED = "Failed to send password reset email"
 
 MISSING_REQUIRED_FIELDS= "Missing required fields"
 

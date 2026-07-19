@@ -138,6 +138,7 @@ class PageMaster(models.Model):
     display_order = models.PositiveIntegerField(default=0)
     is_menu = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    source = models.CharField(max_length=50,blank=True,null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey('user.UserMaster', on_delete=models.SET_NULL, blank=True, null=True, related_name='created_pages')

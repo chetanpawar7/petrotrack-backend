@@ -31,3 +31,29 @@ class AssignPagePermissionsView(APIView):
         except Exception as e:
             logger_utils.main_exception(self.get_view_name(), str(e))
             return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GetPageListView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Get Page List Api Started....', request.data)
+            return helper.get_page_list(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(), str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GetStationListView(APIView):
+    authentication_classes = [SupabaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            logger_utils.main_info('Get Station List Api Started....', request.data)
+            return helper.get_station_list(request)
+        except Exception as e:
+            logger_utils.main_exception(self.get_view_name(), str(e))
+            return Response(response_translator.error_response(message=error_msg.INTERNAL_SERVER_ERROR), status=status.HTTP_500_INTERNAL_SERVER_ERROR)

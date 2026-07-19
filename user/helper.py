@@ -344,6 +344,40 @@ def logout_user(request):
 
     except Exception as e:
         raise e
+
+
+def forgot_password(request):
+    try:
+        request_data = request.data
+        email = request_data.get("email")
+
+        if not email:
+            response = response_translator.error_response(message=error_msg.MISSING_REQUIRED_FIELDS)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        username = regex_utils.get_username_from_email(email)
+        if not username:
+            response = response_translator.error_response(message=error_msg.INVALID_EMAIL)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        user_obj = UserMaster.objects.filter(email=email, is_active=True).first()
+        if not user_obj:
+            response = response_translator.error_response(message=error_msg.USER_NOT_FOUND)
+            return Response(response, status=status.HTTP_404_NOT_FOUND)
+
+        is_email_sent = db_helper.send_password_reset_email(email)
+        if not is_email_sent:
+            response = response_translator.error_response(message=error_msg.PASSWORD_RESET_EMAIL_FAILED)
+            return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+        response = response_translator.success_response(
+            data={},
+            message=success_msg.PASSWORD_RESET_EMAIL_SENT
+        )
+        return Response(response, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        raise e
     
 
 def update_user(request):

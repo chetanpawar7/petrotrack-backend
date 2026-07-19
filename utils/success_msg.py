@@ -4,6 +4,8 @@ USER_LOGIN_SUCCESS = "User logged in successfully"
 
 USER_LOGOUT_SUCCESS = "User logged out successfully"
 
+PASSWORD_RESET_EMAIL_SENT = "Password reset email sent successfully"
+
 USER_UPDATE_SUCCESS = "User updated successfully"
 
 USER_DELETE_SUCCESS = "User deleted successfully"
@@ -17,6 +19,8 @@ USER_CREATED_SUCCESSFULLY = "User created successfully"
 DROPDOWN_FETCHED_SUCCESSFULLY = "Dropdown fetched successfully"
 
 PAGE_PERMISSIONS_FETCHED_SUCCESSFULLY = "Page permissions fetched successfully"
+
+STATION_LIST_FETCHED = "Station list fetched successfully"
 
 RECEIPT_CREATED_SUCCESSFULLY = "Receipt created successfully"
 
